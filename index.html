@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>五子棋 - Minimax AI</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+    }
+    canvas {
+      background-color: burlywood;
+      display: block;
+      margin: 0 auto;
+      width: 100%;
+      height: auto;
+      max-width: 100vw;
+      touch-action: manipulation;
+    }
+    #msg {
+      text-align: center;
+      font-size: 20px;
+      margin-top: 10px;
+    }
+    #restart {
+      display: block;
+      margin: 10px auto;
+      padding: 8px 16px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="board" width="600" height="600"></canvas>
+  <div id="msg"></div>
+  <button id="restart">重新开始</button>
+  <script>
+    const BOARD_SIZE = 20;
+    const WIN_COUNT = 5;
+    const MAX_DEPTH = 2;
+    const EMPTY = 0, PLAYER = 1, AI = 2;
+    const canvas = document.getElementById("board");
+    const ctx = canvas.getContext("2d");
+    const msg = document.getElementById("msg");
+    let board, CELL_SIZE, gameOver;
+
+    function resizeCanvas() {
+      const size = Math.min(window.innerWidth, window.innerHeight) - 40;
+      canvas.width = size;
+      canvas.height = size;
+      CELL_SIZE = size / BOARD_SIZE;
+      drawBoard();
+      redrawStones();
+    }
+
+    function drawBoard() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let i = 0; i < BOARD_SIZE; i++) {
+        ctx.beginPath();
+        ctx.moveTo(CELL_SIZE / 2, CELL_SIZE / 2 + i * CELL_SIZE);
+        ctx.lineTo(CELL_SIZE / 2 + (BOARD_SIZE - 1) * CELL_SIZE, CELL_SIZE / 2 + i * CELL_SIZE);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(CELL_SIZE / 2 + i * CELL_SIZE, CELL_SIZE / 2);
+        ctx.lineTo(CELL_SIZE / 2 + i * CELL_SIZE, CELL_SIZE / 2 + (BOARD_SIZE - 1) * CELL_SIZE);
+        ctx.stroke();
+      }
+    }
+
+    function drawStone(row, col, player) {
+      let x = CELL_SIZE / 2 + col * CELL_SIZE;
+      let y = CELL_SIZE / 2 + row * CELL_SIZE;
+      ctx.beginPath();
+      ctx.arc(x, y, CELL_SIZE * 0.4, 0, 2 * Math.PI);
+      ctx.fillStyle = player === PLAYER ? "black" : "white";
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    function redrawStones() {
+      for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          if (board[r][c] !== EMPTY) {
+            drawStone(r, c, board[r][c]);
+          }
+        }
+      }
+    }
+
+    function checkWin(r, c, player) {
+      const directions = [[1,0],[0,1],[1,1],[1,-1]];
+      for (let [dr, dc] of directions) {
+        let count = 1;
+        for (let d = -1; d <= 1; d += 2) {
+          let rr = r, cc = c;
+          for (let i = 0; i < WIN_COUNT; i++) {
+            rr += dr * d;
+            cc += dc * d;
+            if (rr >= 0 && rr < BOARD_SIZE && cc >= 0 && cc < BOARD_SIZE && board[rr][cc] === player) {
+              count++;
+            } else {
+              break;
+            }
+          }
+        }
+        if (count >= WIN_COUNT) return true;
+      }
+      return false;
+    }
+
+    function evaluateBoard(player) {
+      let score = 0;
+      for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          if (board[r][c] !== EMPTY) {
+            score += evaluatePoint(r, c, board[r][c]) * (board[r][c] === player ? 1 : -0.8);
+          }
+        }
+      }
+      return score;
+    }
+
+    function evaluatePoint(row, col, player) {
+      const patterns = [
+        { p: [player,player,player,player,player], val: 10000 },
+        { p: [EMPTY,player,player,player,player,EMPTY], val: 5000 },
+        { p: [EMPTY,player,player,player,EMPTY], val: 500 },
+        { p: [EMPTY,player,player,EMPTY], val: 50 },
+        { p: [player,player,player,player,EMPTY], val: 1000 },
+        { p: [EMPTY,player,player,player,player], val: 1000 },
+        { p: [player,player,player,EMPTY,EMPTY], val: 50 },
+        { p: [EMPTY,EMPTY,player,player,player], val: 50 },
+      ];
+      const directions = [[1,0],[0,1],[1,1],[1,-1]];
+      let score = 0;
+      for (let [dr, dc] of directions) {
+        let line = [];
+        for (let i = -4; i <= 4; i++) {
+          let r = row + dr * i, c = col + dc * i;
+          line.push(r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE ? board[r][c] : -1);
+        }
+        for (let {p, val} of patterns) {
+          for (let i = 0; i <= line.length - p.length; i++) {
+            if (p.every((v, j) => v === line[i + j])) score += val;
+          }
+        }
+      }
+      return score;
+    }
+
+    function generateCandidates() {
+      let candidates = new Set();
+      for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          if (board[r][c] !== EMPTY) {
+            for (let dr = -1; dr <= 1; dr++) {
+              for (let dc = -1; dc <= 1; dc++) {
+                let nr = r + dr, nc = c + dc;
+                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === EMPTY) {
+                  candidates.add(nr + "," + nc);
+                }
+              }
+            }
+          }
+        }
+      }
+      return candidates.size ? Array.from(candidates).map(s => s.split(",").map(Number)) : [[Math.floor(BOARD_SIZE/2), Math.floor(BOARD_SIZE/2)]];
+    }
+
+    function minimax(depth, isMax, alpha, beta) {
+      let score = evaluateBoard(AI);
+      if (Math.abs(score) >= 10000 || depth === 0) return score;
+
+      let best = isMax ? -Infinity : Infinity;
+      for (let [r, c] of generateCandidates()) {
+        board[r][c] = isMax ? AI : PLAYER;
+        let val = minimax(depth - 1, !isMax, alpha, beta);
+        board[r][c] = EMPTY;
+        best = isMax ? Math.max(best, val) : Math.min(best, val);
+        if (isMax) alpha = Math.max(alpha, val);
+        else beta = Math.min(beta, val);
+        if (beta <= alpha) break;
+      }
+      return best;
+    }
+
+    function aiMove() {
+      let bestScore = -Infinity, move = null;
+      for (let [r, c] of generateCandidates()) {
+        board[r][c] = AI;
+        let score = minimax(MAX_DEPTH, false, -Infinity, Infinity);
+        board[r][c] = EMPTY;
+        if (score > bestScore) {
+          bestScore = score;
+          move = [r, c];
+        }
+      }
+      if (move) {
+        board[move[0]][move[1]] = AI;
+        drawStone(move[0], move[1], AI);
+        if (checkWin(move[0], move[1], AI)) {
+          msg.innerText = "AI 赢了！";
+          gameOver = true;
+        }
+      }
+    }
+
+    function resetGame() {
+      board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(EMPTY));
+      msg.innerText = "";
+      gameOver = false;
+      resizeCanvas();
+    }
+
+    canvas.addEventListener("click", e => {
+      if (gameOver) return;
+      let rect = canvas.getBoundingClientRect();
+      let col = Math.floor((e.clientX - rect.left) / CELL_SIZE);
+      let row = Math.floor((e.clientY - rect.top) / CELL_SIZE);
+      if (row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE && board[row][col] === EMPTY) {
+        board[row][col] = PLAYER;
+        drawStone(row, col, PLAYER);
+        if (checkWin(row, col, PLAYER)) {
+          msg.innerText = "你赢了！";
+          gameOver = true;
+        } else {
+          setTimeout(aiMove, 300);
+        }
+      }
+    });
+
+    document.getElementById("restart").onclick = resetGame;
+    window.addEventListener("resize", resizeCanvas);
+    resetGame();
+  </script>
+</body>
+</html>
